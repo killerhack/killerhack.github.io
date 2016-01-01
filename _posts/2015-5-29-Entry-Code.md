@@ -1,4 +1,4 @@
-# 逆向--各类程序入口代码训练  
+# 逆向--各类程序入口代码以及特征总结  
 有点闲暇时间，总结一下，我个人认为逆向的识别壳以及脱壳的技术，都是靠看出来的，用一句数学用语来说就叫解无定法观察得之。下面就来简单说一下。  
 ##  各类无壳程序的特征  
 我们知道不同的编译器将代码连接起来的特征是不一样的，各类语言的编译原理无非是将符号化的高层语言，比如C#，java,Delphi按照其语法定义连接成可以执行的EXE文件，但这中间就会丢失很多高层语言本身的符号，最终在EXE中只保留了必要的指令，而这些指令则就是汇编语言中最简单的操作。所以我们可以先不用管具体它是怎么实现的，让我们先看看各类编译器下入口代码的特征。  
@@ -201,3 +201,69 @@ VS的入口特征很短
 ### 6. .Net
 .Net是我目前最看好的Win平台下的语言，目前出场率也很高，不过对于它的逆向，因为机制中类似有一个虚拟机的东西，像JAVA一样，甚至可以逆向出源代码，不过我们还是从汇编的角度看看它怎么在OD中调试。
 有时候拖进去可能会直接运行，这个有可能是中断在tls,可以使用TLLY插件去解决。从模块信息中就可以看到加载了很多.NET的库
+### 7.AUTOIT
+之前用这个做自动化非常棒，接触过不少，Autoit可以通过字符串直接发现，另外可以直接逆出源代码
+
+### 8.其他类型etc ###
+PB主要是加载模块中有libjcc.dll和pbvm90.dll，这个直接从动态链接库就能发现,Qt则是Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll这类很明显的库就能看出来。
+
+> 接下来就说一下各类壳的特征，知道没加壳的样子和入口特征之后，脱壳之后就可以看出来自己到底脱没脱干净。
+
+## 加壳程序特征 ##
+
+不要总是依赖于工具，多考虑手动的方式。自动化工具都是靠特征这类的方法去识别，但是像VMP这类的虚拟化壳，每次加完都不一样，所以就误报率很高，所以工具毕竟还是死的，要靠自己的经验来判断。
+
+### 1.Aspack ###
+入口点一上来是一个PUSHAD，就是所有寄存器入栈，保存下现场然后call,jmp，这个特征还可以看下区段。  
+
+	00963001 >  60              pushad
+	00963002    E8 03000000     call 吾爱破解.0096300A
+	00963007  - E9 EB045D45     jmp 45F334F7
+	0096300C    55              push ebp
+	0096300D    C3              retn
+	0096300E    E8 01000000     call 吾爱破解.00963014
+	00963013    EB 5D           jmp short 吾爱破解.00963072
+	00963015    BB EDFFFFFF     mov ebx,-0x13
+	
+区段可能为.aspack .adata多这两个区段，不过这两个名字是可变的，所以名字随便填的，不是特别可靠。
+###  2.UPX  ###
+UPX不同版本见是有点差距的，不过差别不大，区段信息特征非常明显，就是UPX0，UPX1,.RSRC一般都会压缩成三个区段，区段名称也可变，可能是假的。 
+### 3.Themida ###
+Themida也是主要看区段，目前入口加了一个随机的代码，执行之后解码之后才显示，一般都有五个区段，第一个名字是空的，最后两个是任意的，基本上就是Themida.版本不同稍微有区别。
+### 4.Vmp ###
+vmp的入口特征是特别乱的，基本啥也看不出来，基本上也是用区段看，一般都是程序原本的几个区段保留.reloc和.rsrc放在最下面，中间加三个区段，名字可变，如图。
+![vmp区段](https://github.com/killerhack/killerhack.github.io/blob/master/_posts/vmp.png)  
+
+	00D533CC    E8 F6EFFCFF     call 吾爱破解.00D223C7
+	00D533D1    48              dec eax
+	00D533D2    DE1F            ficomp word ptr ds:[edi]
+	00D533D4    ff5e 43         call far fword ptr ds:[esi+0x43]
+	00D533D7    29F0            sub eax,esi
+	00D533D9    3950 3F         cmp dword ptr ds:[eax+0x3F],edx          ; ntdll_12.777C2080
+	00D533DC    16              push ss
+	00D533DD    17              pop ss
+	00D533DE    F8              clc
+	00D533DF    F7E8            imul eax
+	00D533E1    D5 E6           aad 0xE6
+	00D533E3    C9              leave
+	00D533E4    B8 FD96900D     mov eax,0xD9096FD
+	00D533E9    A5              movs dword ptr es:[edi],dword ptr ds:[es>
+	00D533EA    BC CB37FE52     mov esp,0x52FE37CB
+	00D533EF    66:27           daa
+	00D533F1    9D              popfd
+
+再加上这种乱序的结构，就是VMP。
+#### 5.Shielden ####
+区段信息中，默认是.SEDATA	但是会有两个相同的，如果分析一下，简单F7前两个JMP之后，就能看到其ASCII信息了。甚至版本也能出来。  
+
+	0050A40D   > /E8 1C000000   call 吾爱破解.0050A42E                       ;  PUSH ASCII "Safengine Shielden v2.3.6.0"
+	0050A412   . |53 61 66 65 6>ascii "Safengine Shield"
+	0050A422   . |65 6E 20 76 3>ascii "en v2.3.6.0",0
+	0050A42E   > |9C            pushfd
+	0050A42F   . |E8 4CFFFFFF   call 吾爱破解.0050A380
+	0050A434   > |66:8B1C24     mov bx,word ptr ss:[esp]
+	0050A438   . |86DD          xchg ch,bl
+	0050A43A   . |66:87F1       xchg cx,si
+	0050A43D   . |0f9ec1        setle cl
+	0050A440   . |8A0C24        mov cl,byte ptr ss:[esp]
+
